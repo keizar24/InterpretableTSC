@@ -3,7 +3,6 @@ from typing import Iterable
 
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
-
 import argparse
 
 if __package__ is None or __package__ == "":
