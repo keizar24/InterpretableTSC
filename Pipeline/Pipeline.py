@@ -721,7 +721,7 @@ if __name__ == "__main__":
 
         pipeline.train(
             use_hpo=True,
-            n_trials=50,
+            n_trials=10,
             epochs=10,
             batch_size=32,
             patience=5,
@@ -760,7 +760,7 @@ if __name__ == "__main__":
                     patience=5,
                     normalize=True,
                     balance=True,
-                    balance_strategy="over",
+                    balance_strategy="smote",
                     optimize_metric="f1",
                     cost_sensitive="weighted_ce",  # Example of weighted CE
                 )
@@ -826,7 +826,7 @@ if __name__ == "__main__":
                     patience=5,
                     normalize=True,
                     balance=True,
-                    balance_strategy="over",
+                    balance_strategy="smote",
                     optimize_metric="f1",
                     cost_sensitive="weighted_ce",
                 )
