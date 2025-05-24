@@ -1,6 +1,6 @@
 import copy
 import os
-from typing import Literal
+from typing import Literal, Iterable
 
 import numpy as np
 import pandas as pd
@@ -681,6 +681,64 @@ class Pipeline:
 
         return best_threshold
 
+
+###############################################################################
+# Ensemble utilities
+###############################################################################
+def majority_vote(pred_list: Iterable[np.ndarray]) -> np.ndarray:
+    """Return element-wise majority vote across prediction arrays."""
+    stack = np.stack(pred_list, axis=0)
+    votes = []
+    for i in range(stack.shape[1]):
+        counts = np.bincount(stack[:, i].astype(int))
+        votes.append(np.argmax(counts))
+    return np.array(votes)
+
+
+def ensemble_pipeline(
+    model_class,
+    file_path: str,
+    n_vars: int,
+    num_classes: int,
+    selection_types: Iterable[str],
+    distance_metrics: Iterable[str],
+    result_dir: str | None = None,
+    num_prototypes: int = 8,
+    threshold: float = 0.5,
+    **train_kwargs,
+):
+    """Train pipelines for each prototype selection and metric then do majority vote."""
+    preds_all = []
+    labels_ref = None
+    for sel in selection_types:
+        for metric in distance_metrics:
+            sub_dir = None
+            if result_dir is not None:
+                sub_dir = os.path.join(result_dir, f"{sel}_{metric}")
+            pipe = Pipeline(
+                model_class=model_class,
+                file_path=file_path,
+                n_vars=n_vars,
+                num_classes=num_classes,
+                result_dir=sub_dir,
+                use_prototype=True,
+                num_prototypes=num_prototypes,
+                prototype_selection_type=sel,
+                prototype_distance_metric=metric,
+            )
+            pipe.train(**train_kwargs)
+            preds, labels = pipe.predict(threshold=threshold)
+            preds_all.append(preds)
+            if labels_ref is None:
+                labels_ref = labels
+    if labels_ref is None:
+        raise ValueError("No predictions were produced.")
+
+    final_preds = majority_vote(preds_all)
+    acc = accuracy_score(labels_ref, final_preds)
+    f1 = f1_score(labels_ref, final_preds)
+    return final_preds, {"accuracy": acc, "f1": f1}
+
 ###############################################################################
 # Example usage (main)
 ###############################################################################
@@ -738,38 +796,28 @@ if __name__ == "__main__":
         print(f"{model_class.__name__} results:", results)
 
     for proto_class in prototype_models:
-        for selection_type in selection_types:
-            for distance_metric in distance_metrics:
-                prototype_pipeline = Pipeline(
-                    model_class=proto_class,
-                    file_path=CSV_FILE_PATH_1,
-                    n_vars=n_var_1,
-                    num_classes=2,
-                    result_dir=f"../Result/may/{proto_class.__name__}/{selection_type}_{distance_metric}",
-                    use_prototype=True,
-                    num_prototypes=10,
-                    prototype_selection_type=selection_type,
-                    prototype_distance_metric=distance_metric,
-                )
-
-                prototype_pipeline.train(
-                    use_hpo=True,
-                    n_trials=10,
-                    epochs=10,
-                    batch_size=32,
-                    patience=5,
-                    normalize=True,
-                    balance=True,
-                    balance_strategy="smote",
-                    optimize_metric="f1",
-                    cost_sensitive="weighted_ce",  # Example of weighted CE
-                )
-                bst_threshold = prototype_pipeline.find_best_threshold(step=0.01, metric="f1", plot_curve=False)
-                proto_results = prototype_pipeline.evaluate(threshold=bst_threshold)
-                print(
-                    f"{proto_class.__name__}-{selection_type}-{distance_metric} results:",
-                    proto_results,
-                )
+        _, metrics = ensemble_pipeline(
+            model_class=proto_class,
+            file_path=CSV_FILE_PATH_1,
+            n_vars=n_var_1,
+            num_classes=2,
+            selection_types=selection_types,
+            distance_metrics=distance_metrics,
+            result_dir=f"../Result/may/{proto_class.__name__}",
+            num_prototypes=10,
+            threshold=0.5,
+            use_hpo=True,
+            n_trials=10,
+            epochs=10,
+            batch_size=32,
+            patience=5,
+            normalize=True,
+            balance=True,
+            balance_strategy="smote",
+            optimize_metric="f1",
+            cost_sensitive="weighted_ce",
+        )
+        print(f"{proto_class.__name__} ensemble results:", metrics)
 
     # Daily
     for model_class in baseline_models:
@@ -804,35 +852,25 @@ if __name__ == "__main__":
 
     # Prototype-based models
     for proto_class in prototype_models:
-        for selection_type in selection_types:
-            for distance_metric in distance_metrics:
-                prototype_pipeline = Pipeline(
-                    model_class=proto_class,
-                    file_path=CSV_FILE_PATH_2,
-                    n_vars=n_var_2,
-                    num_classes=2,
-                    result_dir=f"../Result/{proto_class.__name__}/{selection_type}_{distance_metric}",
-                    use_prototype=True,
-                    num_prototypes=10,
-                    prototype_selection_type=selection_type,
-                    prototype_distance_metric=distance_metric,
-                )
-
-                prototype_pipeline.train(
-                    use_hpo=True,
-                    n_trials=10,
-                    epochs=10,
-                    batch_size=32,
-                    patience=5,
-                    normalize=True,
-                    balance=True,
-                    balance_strategy="smote",
-                    optimize_metric="f1",
-                    cost_sensitive="weighted_ce",
-                )
-                bst_threshold = prototype_pipeline.find_best_threshold(step=0.01, metric="f1", plot_curve=False)
-                proto_results = prototype_pipeline.evaluate(threshold=bst_threshold)
-                print(
-                    f"{proto_class.__name__}-{selection_type}-{distance_metric} results:",
-                    proto_results,
-                )
+        _, metrics = ensemble_pipeline(
+            model_class=proto_class,
+            file_path=CSV_FILE_PATH_2,
+            n_vars=n_var_2,
+            num_classes=2,
+            selection_types=selection_types,
+            distance_metrics=distance_metrics,
+            result_dir=f"../Result/{proto_class.__name__}",
+            num_prototypes=10,
+            threshold=0.5,
+            use_hpo=True,
+            n_trials=10,
+            epochs=10,
+            batch_size=32,
+            patience=5,
+            normalize=True,
+            balance=True,
+            balance_strategy="smote",
+            optimize_metric="f1",
+            cost_sensitive="weighted_ce",
+        )
+        print(f"{proto_class.__name__} ensemble results:", metrics)
