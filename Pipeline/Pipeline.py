@@ -573,13 +573,11 @@ class Pipeline:
             val_loss = self._train_loop(optimizer, criterion, epochs=epochs, patience=patience)
             return self.best_model, val_loss
 
-    def evaluate(self, threshold: float = 0.5):
-        """
-        Evaluate on the test set. We compute softmax => take class-1 probability => compare with threshold.
-        Default threshold=0.5.
-        """
+    def predict(self, threshold: float = 0.5):
+        """Return predicted and true labels on the test set."""
         if self.test_loader is None:
-            raise ValueError("Call data_loader() before evaluate().")
+            raise ValueError("Call data_loader() before predict().")
+
         self.model.eval()
 
         preds, labels = [], []
@@ -587,14 +585,21 @@ class Pipeline:
             for x, y in self.test_loader:
                 x, y = x.to(self.device).float(), y.to(self.device)
                 logits = self.model(x)
-                # Convert logits to softmax probability for class 1
                 probs = nn.functional.softmax(logits, dim=1)[:, 1]
                 pred = (probs >= threshold).long()
                 preds.extend(pred.cpu().numpy())
                 labels.extend(y.cpu().numpy())
 
-        preds = np.array(preds)
-        labels = np.array(labels)
+        return np.array(preds), np.array(labels)
+
+    def evaluate(self, threshold: float = 0.5):
+        """
+        Evaluate on the test set. We compute softmax => take class-1 probability => compare with threshold.
+        Default threshold=0.5.
+        """
+        if self.test_loader is None:
+            raise ValueError("Call data_loader() before evaluate().")
+        preds, labels = self.predict(threshold=threshold)
         acc = accuracy_score(labels, preds)
         f1 = self._binary_f1(labels, preds)
         self.confusion_mat = confusion_matrix(labels, preds)
